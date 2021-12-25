@@ -36,51 +36,43 @@ int main(int argc, char *argv[]) {
     send_pckt_tunnel->icmp_hdr.un.echo.id = getpid();
 
     uint16_t tot_len;
-    uint16_t correct_tot_len;  // With fixed endianity
 
     for (int i = 0; i < 5; ++i) {
         // Get packet from tunnel
         printf("Receiving From Tunnel\n");
         do {
-            recvToBuff(tunnel_sock, recv_pckt_tunnel, MAX_PCKT_LEN);
+            tot_len = recvToBuff(tunnel_sock, recv_pckt_tunnel, MAX_PCKT_LEN);
             printf("Got Packet\n");
             printf("%d %d\n", recv_pckt_tunnel->icmp_ip_pckt.icmp_hdr.code, recv_pckt_tunnel->icmp_ip_pckt.icmp_hdr.type);
             // We filter only packets from the actual tunnel
         } while (recv_pckt_tunnel->icmp_ip_pckt.icmp_hdr.code != ICMP_TUNNEL_CODE || recv_pckt_tunnel->icmp_ip_pckt.icmp_hdr.type != ICMP_ECHO);
 
-        tot_len = recv_pckt_tunnel->icmp_ip_pckt.ip_hdr.tot_len;
-        correct_tot_len = (tot_len>>8) | (tot_len<<8);  // swap endianity
-
         // Create packet for outer
-        printf("Len %d Correct %d\n", tot_len, correct_tot_len);
+        printf("Len %d\n", tot_len);
 
         outer_addr = sockaddrFromIp(recv_pckt_tunnel->icmp_ip_pckt.ip_hdr.daddr);
         tunnel_addr = sockaddrFromIp(recv_pckt_tunnel->ip_hdr.saddr);
 
-        memcpy(send_pckt_outer, recv_pckt_tunnel->icmp_ip_pckt.data,
-               correct_tot_len - sizeof(recv_pckt_tunnel->ip_hdr));
+        memcpy(send_pckt_outer, recv_pckt_tunnel->icmp_ip_pckt.data,tot_len - sizeof(recv_pckt_tunnel->ip_hdr) - sizeof(recv_pckt_tunnel->icmp_ip_pckt.icmp_hdr));
         // Send packet to outer
         printf("Sending To Outer\n");
-        sendBuff(outer_sock, send_pckt_outer, correct_tot_len - sizeof(recv_pckt_tunnel->ip_hdr), *(struct sockaddr *) &outer_addr);
+        sendBuff(outer_sock, send_pckt_outer, tot_len - sizeof(recv_pckt_tunnel->ip_hdr) - sizeof(recv_pckt_tunnel->icmp_ip_pckt.icmp_hdr), *(struct sockaddr *) &outer_addr);
         // Get packet from outer
         printf("Receiving From Outer\n");
         do {
-            recvToBuff(outer_sock, recv_pckt_outer, MAX_PCKT_LEN);
-            printf("Got Packet\n");
+            tot_len = recvToBuff(outer_sock, recv_pckt_outer, MAX_PCKT_LEN);
+            printf(".");
             // We wait for reply from the same host we sent the packet to
         } while (recv_pckt_outer->ip_hdr.saddr != outer_addr.sin_addr.s_addr);
+        printf("Got Packet\n");
 
         // Create packet for tunnel
-        tot_len = recv_pckt_outer->ip_hdr.tot_len;
-        correct_tot_len = (tot_len>>8) | (tot_len<<8);  // swap endianity
-
-        memcpy(&(send_pckt_tunnel->ip_hdr), recv_pckt_outer, correct_tot_len);
+        memcpy(&(send_pckt_tunnel->ip_hdr), recv_pckt_outer, tot_len);
         send_pckt_tunnel->icmp_hdr.un.echo.sequence = i;
 
         // Send packet to tunnel
         printf("Sending To Tunnel\n");
-        printf("%d %d\n", tunnel_addr.sin_addr.s_addr, correct_tot_len);
-        sendBuff(tunnel_sock, send_pckt_tunnel, correct_tot_len + sizeof(send_pckt_tunnel->icmp_hdr), *(struct sockaddr *) &tunnel_addr);
+        sendBuff(tunnel_sock, send_pckt_tunnel, tot_len + sizeof(send_pckt_tunnel->icmp_hdr), *(struct sockaddr *) &tunnel_addr);
     }
     close(tunnel_sock);
     close(outer_sock);

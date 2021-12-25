@@ -8,6 +8,7 @@
 
 int createRawSock(bool manualIncludeIpHeader, int proto) {
     int sock;
+    int tr = 1;
     if (getuid() != 0) {
         fprintf(stderr, "This program requires root privileges!\n");
         exit(EXIT_FAILURE);
@@ -21,6 +22,10 @@ int createRawSock(bool manualIncludeIpHeader, int proto) {
         perror("Error setting IP_HDRINCL, exiting...");
         exit(EXIT_FAILURE);
     }
+//    if(setsockopt(sock, IPPROTO_IP, IP_TRANSPARENT, &tr, sizeof(tr)) < 0) {
+//        perror("Error setting SO_BINDTODEVICE, exiting...");
+//        exit(EXIT_FAILURE);
+//    }
     printf("Raw socket was created.\n");
     return sock;
 }

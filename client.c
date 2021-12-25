@@ -14,7 +14,7 @@ int main(int argc, char *argv[]) {
     }
     struct sockaddr_in proxy_addr = resolveIpv4(argv[1]);
     struct sockaddr_in outer_addr = resolveIpv4(argv[2]);
-    struct sockaddr_in local_addr = resolveIpv4("127.0.0.1");
+    struct sockaddr_in dummy_addr = resolveIpv4("128.0.0.1");
 
     // Initialize packet buffers
     char send_buf_tunnel[MAX_PCKT_LEN], recv_buf_tunnel[MAX_PCKT_LEN];
@@ -31,11 +31,11 @@ int main(int argc, char *argv[]) {
     struct ip_icmp_ip_pckt *recv_pckt_tunnel = (struct ip_icmp_ip_pckt *) recv_buf_tunnel;
     // Outer
     char *send_pckt_outer = send_buf_outer;
-    char *recv_pckt_outer = recv_buf_outer;
+    struct ip_pckt *recv_pckt_outer = (struct ip_pckt *) recv_buf_outer;
 
     // Create tunnel and outer sockets
     int tunnel_sock = createRawSock(false, IPPROTO_ICMP);
-    int outer_sock = createTcpSock(80);
+    int outer_sock = createRawSock(false, IPPROTO_TCP);
 
     send_pckt_tunnel->icmp_hdr.type = ICMP_ECHO;
     send_pckt_tunnel->icmp_hdr.code = ICMP_TUNNEL_CODE;
@@ -47,7 +47,11 @@ int main(int argc, char *argv[]) {
         // If we are the client, we start by reading data from the outer socket instead of the tunnel
         // Get packet from outer
         printf("Receiving From Outer\n");
-        tot_len = recvToBuff(outer_sock, recv_pckt_outer, MAX_PCKT_LEN);
+        do {
+            tot_len = recvToBuff(outer_sock, recv_pckt_outer, MAX_PCKT_LEN);
+            if (recv_pckt_outer->ip_hdr.daddr != 2164828352)
+                printf("%u %u\n", recv_pckt_outer->ip_hdr.daddr, dummy_addr.sin_addr.s_addr);
+        } while (recv_pckt_outer->ip_hdr.daddr != dummy_addr.sin_addr.s_addr);
         printf("Got Packet\n");
 
         memcpy(&send_pckt_tunnel->ip_hdr, &recv_pckt_outer->ip_hdr, tot_len);
@@ -71,12 +75,11 @@ int main(int argc, char *argv[]) {
 
 
         // Create packet for outer
-        printf("Len %d Correct %d\n", tot_len, correct_tot_len);
-        memcpy(send_pckt_outer, &recv_pckt_tunnel->icmp_ip_pckt.data,correct_tot_len - sizeof(recv_pckt_tunnel->ip_hdr));
-//        send_pckt_outer->ip_hdr.daddr = local_addr.sin_addr.s_addr;
+        printf("Len %d\n", tot_len);
+        memcpy(send_pckt_outer, &recv_pckt_tunnel->icmp_ip_pckt.data,tot_len - sizeof(recv_pckt_tunnel->ip_hdr) - sizeof(recv_pckt_tunnel->icmp_ip_pckt.icmp_hdr));
         // Send packet to outer
         printf("Sending To Outer\n");
-        sendBuff(outer_sock, send_pckt_outer, correct_tot_len - sizeof(recv_pckt_tunnel->ip_hdr), *(struct sockaddr *) &outer_addr);
+        sendBuff(outer_sock, send_pckt_outer, tot_len - sizeof(recv_pckt_tunnel->ip_hdr) - sizeof(recv_pckt_tunnel->icmp_ip_pckt.icmp_hdr), *(struct sockaddr *) &outer_addr);
     }
 
     close(tunnel_sock);
