@@ -55,7 +55,6 @@ typedef struct TunnelSession {
     uint32_t current_ack;
     uint32_t current_sequence;
     uint32_t icmp_sequence;
-    struct sockaddr_in client_address;
 } TunnelSession;
 
 int create_raw_socket(bool manual_include_ip_header, int proto);

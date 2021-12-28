@@ -14,8 +14,6 @@
 struct sockaddr_in proxy_address;
 uint16_t local_port;
 struct sockaddr_in destination_address;
-uint16_t destination_port;
-struct sockaddr_in localhost_address;
 // Packet buffers
 char buffer_in[MAX_PCKT_LEN], buffer_out[MAX_PCKT_LEN];
 // Structs to hold the packet data
@@ -51,7 +49,7 @@ void prepare_tunnel_packet(TunnelSession *tunnel_session) {
     memset(buffer_out, 0, MAX_PCKT_LEN);
     pckt_tunnel_out->icmp_header.type = ICMP_ECHO;
     pckt_tunnel_out->icmp_header.code = 0;
-    pckt_tunnel_out->tunnel_header.address = tunnel_session->client_address;
+    pckt_tunnel_out->tunnel_header.address = destination_address;
     pckt_tunnel_out->tunnel_header.magic = TUNNEL_MAGIC;
     pckt_tunnel_out->icmp_header.un.echo.id = tunnel_session->identifier;
     pckt_tunnel_out->icmp_header.un.echo.sequence = tunnel_session->icmp_sequence;
@@ -86,7 +84,7 @@ void handle_new_connection() {
     }
     // Add the socket to our client sockets list
     uint16_t identifier = rand();
-    TunnelSession new_session = {new_client_socket, identifier, 0, 0, 0, client_address};
+    TunnelSession new_session = {new_client_socket, identifier, 0, 0, 0};
     tunnel_sessions[number_of_sessions] = new_session;
     number_of_sessions += 1;
     // Update highest_numbered_fd
@@ -149,8 +147,8 @@ int main(int argc, char *argv[]) {
     proxy_address = resolve_host_ipv4(argv[1]);
     local_port = atoi(argv[2]);
     destination_address = resolve_host_ipv4(argv[3]);
-    destination_port = atoi(argv[4]);
-    localhost_address = resolve_host_ipv4("127.0.0.1");
+    destination_address.sin_port = htons(atoi(argv[4]));
+
 
     // Clear buffers
     memset(buffer_in, 0, sizeof(buffer_in));
