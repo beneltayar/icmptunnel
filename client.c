@@ -25,45 +25,28 @@ int highest_numbered_fd;
 int server_socket;
 // We can handle multiple sessions simultaneously
 int number_of_sessions = 0;
-TunnelSession tunnel_sessions[MAX_CLIENT_CONNECTIONS];
+TunnelSession tunnel_sessions[MAX_CONNECTIONS];
 
 
-struct sockaddr_in resolve_host_ipv4(char* host) {
-    struct addrinfo hints;
-    struct addrinfo *result_pointer;
-    memset(&hints, 0, sizeof(struct addrinfo));
-    hints.ai_family = AF_INET;
-    int ret = getaddrinfo(host, NULL, &hints, &result_pointer);
-    if (ret != 0) {
-        fprintf(stderr, "Failed to get address info: %s\n", gai_strerror(ret));
-        exit(EXIT_FAILURE);
-    }
-    if (result_pointer->ai_family != AF_INET) {
-        perror("failed getting ipv4 address");
-        exit(EXIT_FAILURE);
-    }
-    return *(struct sockaddr_in *) &result_pointer->ai_addr;
-}
-
-void prepare_tunnel_packet(TunnelSession *tunnel_session) {
+void prepare_tunnel_packet(TunnelSession *current_session) {
     memset(buffer_out, 0, MAX_PCKT_LEN);
     pckt_tunnel_out->icmp_header.type = ICMP_ECHO;
     pckt_tunnel_out->icmp_header.code = 0;
     pckt_tunnel_out->tunnel_header.address = destination_address;
     pckt_tunnel_out->tunnel_header.magic = TUNNEL_MAGIC;
-    pckt_tunnel_out->icmp_header.un.echo.id = tunnel_session->identifier;
-    pckt_tunnel_out->icmp_header.un.echo.sequence = tunnel_session->icmp_sequence;
-    pckt_tunnel_out->tunnel_header.ack_number = tunnel_session->current_ack;
-    pckt_tunnel_out->tunnel_header.sequence_number = tunnel_session->current_sequence;
+    pckt_tunnel_out->icmp_header.un.echo.id = current_session->identifier;
+    pckt_tunnel_out->icmp_header.un.echo.sequence = current_session->icmp_sequence;
+    pckt_tunnel_out->tunnel_header.ack_number = current_session->current_ack;
+    pckt_tunnel_out->tunnel_header.sequence_number = current_session->current_sequence;
     pckt_tunnel_out->tunnel_header.data_length = 0;
 }
 
 
-void send_packet_to_tunnel(size_t data_length, TunnelSession *tunnel_session) {
-    tunnel_session->current_sequence++;
-    tunnel_session->icmp_sequence++;
+void send_packet_to_tunnel(size_t data_length, TunnelSession *current_session) {
+    current_session->current_sequence++;
+    current_session->icmp_sequence++;
     // Take into account packet headers
-    data_length = + sizeof(struct icmphdr) + sizeof(TunnelHeader);
+    data_length = +sizeof(struct icmphdr) + sizeof(TunnelHeader);
     // Checksum calculation must be right before sending
     pckt_tunnel_out->icmp_header.checksum = 0;  // For checksum calculation to be correct
     pckt_tunnel_out->icmp_header.checksum = checksum((void *) pckt_tunnel_out, data_length);
@@ -75,18 +58,17 @@ void send_packet_to_tunnel(size_t data_length, TunnelSession *tunnel_session) {
 }
 
 void handle_new_connection() {
-    struct sockaddr_in client_address;
-    int new_client_socket = accept_new_connection(server_socket, &client_address);
     // Make sure we can handle more connections
-    if (number_of_sessions >= MAX_CLIENT_CONNECTIONS) {
+    if (number_of_sessions >= MAX_CONNECTIONS) {
         perror("Reached max connections!");
         exit(EXIT_FAILURE);
     }
+    struct sockaddr_in client_address;
+    int new_client_socket = accept_new_connection(server_socket, &client_address);
     // Add the socket to our client sockets list
     uint16_t identifier = rand();
     TunnelSession new_session = {new_client_socket, identifier, 0, 0, 0};
-    tunnel_sessions[number_of_sessions] = new_session;
-    number_of_sessions += 1;
+    tunnel_sessions[number_of_sessions++] = new_session;
     // Update highest_numbered_fd
     if (new_client_socket >= highest_numbered_fd) highest_numbered_fd = new_client_socket;
     // Update the proxy server we have a new connection
@@ -95,45 +77,46 @@ void handle_new_connection() {
     send_packet_to_tunnel(0, tunnel_sessions + number_of_sessions - 1);
 }
 
-void send_close_connection_message(TunnelSession *tunnel_session){
-    prepare_tunnel_packet(tunnel_session);
+void send_close_connection_message(TunnelSession *current_session) {
+    prepare_tunnel_packet(current_session);
     pckt_tunnel_out->tunnel_header.message_type = TUNNEL_CLOSE_CONNECTION;
-    send_packet_to_tunnel(0, tunnel_session);
+    send_packet_to_tunnel(0, current_session);
 }
 
-void remove_session(TunnelSession *tunnel_session) {
-    if (tunnel_session < tunnel_sessions || (tunnel_sessions + number_of_sessions) <= tunnel_session) {
-        // tunnel_session must be in tunnel_sessions
-        perror("tunnel_session not in tunnel_sessions");
+void remove_session(TunnelSession *current_session) {
+    if (current_session < tunnel_sessions || (tunnel_sessions + number_of_sessions) <= current_session) {
+        perror("current_session not in tunnel_sessions");
         exit(EXIT_FAILURE);
     }
     // Close socket and remove from socket list
-    close(tunnel_session->socket_fd);
+    close(current_session->socket_fd);
     // To remove a session, we put the last session in our place and decrease the counter
-    *tunnel_session = tunnel_sessions[--number_of_sessions];
+    *current_session = tunnel_sessions[--number_of_sessions];
 }
 
-void handle_client_data(TunnelSession *tunnel_session) {
-    ssize_t bytes_read = recv(tunnel_session->socket_fd, buffer_in, MAX_TUNNEL_DATA_LEN, 0);
-    prepare_tunnel_packet(tunnel_session);
+void handle_data_from_destination(TunnelSession *current_session) {
+    ssize_t bytes_read = recv(current_session->socket_fd, buffer_in, MAX_TUNNEL_DATA_LEN, 0);
+    prepare_tunnel_packet(current_session);
     pckt_tunnel_out->tunnel_header.message_type = TUNNEL_DATA;
     memcpy(pckt_tunnel_out->data, buffer_in, bytes_read);
-    send_packet_to_tunnel(bytes_read, tunnel_session);
+    send_packet_to_tunnel(bytes_read, current_session);
 }
 
 void handle_tunnel_data_packet(TunnelSession *current_session) {
     // validate and update the ack number
-    if (++(current_session->current_ack) != pckt_tunnel_in->tunnel_packet.tunnel_header.ack_number) {
+    if (++(current_session->current_ack) != pckt_tunnel_in->tunnel_packet.tunnel_header.sequence_number) {
         perror("bad ack number");
         // TODO: maybe just close the session? / send nack?
         exit(EXIT_FAILURE);
     }
     // send data to client
-    ssize_t ret = send(current_session->socket_fd, pckt_tunnel_in->tunnel_packet.data, pckt_tunnel_in->tunnel_packet.tunnel_header.data_length, 0);
+    ssize_t ret = send(current_session->socket_fd, pckt_tunnel_in->tunnel_packet.data,
+                       pckt_tunnel_in->tunnel_packet.tunnel_header.data_length, 0);
     // TODO: send ack also in the future
     if (ret < 0) {
         printf("error sending data to client session, closing session");
         send_close_connection_message(current_session);
+        remove_session(current_session);
     }
 }
 
@@ -191,7 +174,8 @@ int main(int argc, char *argv[]) {
             } else if (pckt_tunnel_in->tunnel_packet.tunnel_header.magic != TUNNEL_MAGIC) {
                 printf("ICMP packet does not have the correct magic, skip\n");
             } else {
-                if (pckt_tunnel_in->tunnel_packet.tunnel_header.data_length != bytes_received + sizeof(struct icmphdr) + sizeof(TunnelSession)) {
+                if (pckt_tunnel_in->tunnel_packet.tunnel_header.data_length !=
+                    bytes_received + sizeof(struct icmphdr) + sizeof(TunnelHeader)) {
                     perror("got bad packet length");
                     exit(EXIT_FAILURE);
                 }
@@ -207,7 +191,8 @@ int main(int argc, char *argv[]) {
                     printf("Identifier not found, maybe this packet belongs to another running client\n");
                 } else {
                     switch (pckt_tunnel_in->tunnel_packet.tunnel_header.message_type) {
-                        case TUNNEL_DATA: case TUNNEL_ACK:
+                        case TUNNEL_DATA:
+                        case TUNNEL_ACK:
                             // ACK handling is the same as data handling
                             handle_tunnel_data_packet(current_session);
                             break;
@@ -222,12 +207,12 @@ int main(int argc, char *argv[]) {
             }
         }
         for (int i = 0; i < number_of_sessions; ++i) {
-            TunnelSession tunnel_session = tunnel_sessions[i];
-            if (FD_ISSET(tunnel_session.socket_fd, &sockets_receive)) {
+            TunnelSession current_session = tunnel_sessions[i];
+            if (FD_ISSET(current_session.socket_fd, &sockets_receive)) {
                 // Data from existing connection
-                handle_client_data(tunnel_sessions + i);
+                handle_data_from_destination(tunnel_sessions + i);
             }
-            if (FD_ISSET(tunnel_session.socket_fd, &sockets_error)) {
+            if (FD_ISSET(current_session.socket_fd, &sockets_error)) {
                 // notify proxy server
                 send_close_connection_message(tunnel_sessions + i);
                 // remove session locally

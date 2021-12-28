@@ -6,7 +6,7 @@
 #include <linux/tcp.h>
 #define MAX_PCKT_LEN 1500
 #define MAX_TUNNEL_DATA_LEN (1500 - sizeof(struct icmphdr) - sizeof(TunnelHeader))
-#define ICMP_TUNNEL_CODE 10
+#define MAX_CONNECTIONS 32
 #define TUNNEL_MAGIC 1337
 #define TUNNEL_NEW_CONNECTION 1
 #define TUNNEL_CLOSE_CONNECTION 2
@@ -59,13 +59,11 @@ typedef struct TunnelSession {
 
 int create_raw_socket(bool manual_include_ip_header, int proto);
 int create_tcp_server_socket(uint16_t port);
-struct sockaddr_in sockaddrFromIp(in_addr_t ip);
-struct sockaddr_in resolveIpv4(char* ip);
 ssize_t send_buffer(int sock, void *buffer, size_t data_length, struct sockaddr_in address);
-void sendBuffToIp(int sock, void *buffer, size_t bufferLen, char *ip);
 unsigned short checksum(void *buffer, size_t len);
 ssize_t recv_to_buffer(int sock, void* buff, size_t buffer_length, struct sockaddr_in *receive_address);
-void forceSleep(double seconds);
 int accept_new_connection(int server_socket, struct sockaddr_in *address_result);
+struct sockaddr_in resolve_host_ipv4(char* host);
+int socket_connect(struct sockaddr_in destination);
 
 #endif //RAWSOCK_UTILS_H

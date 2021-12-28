@@ -3,6 +3,8 @@
 #include <netinet/in.h>
 #include <unistd.h>
 #include <arpa/inet.h>
+#include <string.h>
+#include <netdb.h>
 #include "utils.h"
 
 #define BACKLOG_SIZE 8
@@ -28,13 +30,13 @@ int create_raw_socket(bool manual_include_ip_header, int proto) {
 
 
 int create_tcp_server_socket(uint16_t port) {
-    int server_socket;
+
     struct sockaddr_in address;
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = INADDR_ANY;
     address.sin_port = htons(port);
-
-    if((server_socket = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+    int server_socket = socket(AF_INET, SOCK_STREAM, 0);
+    if(server_socket < 0) {
         perror("socket creation failed");
         exit(EXIT_FAILURE);
     }
@@ -60,17 +62,19 @@ int accept_new_connection(int server_socket, struct sockaddr_in *address_result)
     return client_socket;
 }
 
-
-struct sockaddr_in sockaddrFromIp(in_addr_t ip) {
-    struct sockaddr_in sin;
-    sin.sin_family = AF_INET;
-    sin.sin_addr.s_addr = ip;
-    return sin;
+int socket_connect(struct sockaddr_in destination) {
+    int new_socket = socket(AF_INET, SOCK_STREAM, 0);
+    if(new_socket < 0) {
+        perror("socket creation failed");
+        exit(EXIT_FAILURE);
+    }
+    if (connect(new_socket, (struct sockaddr *) &destination, sizeof(destination)) < 0) {
+        perror("failed to connect");
+        exit(EXIT_FAILURE);
+    }
+    return new_socket;
 }
 
-struct sockaddr_in resolveIpv4(char* ip) {
-    return sockaddrFromIp(inet_addr(ip));
-}
 
 ssize_t send_buffer(int sock, void *buffer, size_t data_length, struct sockaddr_in address) {
     ssize_t bytes_sent = sendto(sock, buffer, data_length, 0, (struct sockaddr *) &address, sizeof(address));
@@ -111,9 +115,19 @@ unsigned short checksum(void *buffer, size_t len) {
     return result;
 }
 
-void forceSleep(double seconds) {
-    if (usleep((int)(seconds * 1000000.0)) < 0) {
-        perror("Failed to sleep");
+struct sockaddr_in resolve_host_ipv4(char *host) {
+    struct addrinfo hints;
+    struct addrinfo *result_pointer;
+    memset(&hints, 0, sizeof(struct addrinfo));
+    hints.ai_family = AF_INET;
+    int ret = getaddrinfo(host, NULL, &hints, &result_pointer);
+    if (ret != 0) {
+        fprintf(stderr, "Failed to get address info: %s\n", gai_strerror(ret));
         exit(EXIT_FAILURE);
-    };
+    }
+    if (result_pointer->ai_family != AF_INET) {
+        perror("failed getting ipv4 address");
+        exit(EXIT_FAILURE);
+    }
+    return *(struct sockaddr_in *) &result_pointer->ai_addr;
 }
