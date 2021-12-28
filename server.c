@@ -28,8 +28,8 @@ int main(int argc, char *argv[]) {
     struct ip_pckt *recv_pckt_outer = (struct ip_pckt *) recv_buf_outer;
 
     // Create tunnel and outer sockets
-    int tunnel_sock = createRawSock(false, IPPROTO_ICMP);
-    int outer_sock = createRawSock(false, IPPROTO_TCP);
+    int tunnel_sock = create_raw_socket(false, IPPROTO_ICMP);
+    int outer_sock = create_raw_socket(false, IPPROTO_TCP);
 
     send_pckt_tunnel->icmp_hdr.type = ICMP_ECHOREPLY;
     send_pckt_tunnel->icmp_hdr.code = ICMP_TUNNEL_CODE;
@@ -41,7 +41,7 @@ int main(int argc, char *argv[]) {
         // Get packet from tunnel
         printf("Receiving From Tunnel\n");
         do {
-            tot_len = recvToBuff(tunnel_sock, recv_pckt_tunnel, MAX_PCKT_LEN);
+            tot_len = recv_to_buffer(tunnel_sock, recv_pckt_tunnel, MAX_PCKT_LEN);
             printf("Got Packet\n");
             printf("%d %d\n", recv_pckt_tunnel->icmp_ip_pckt.icmp_hdr.code, recv_pckt_tunnel->icmp_ip_pckt.icmp_hdr.type);
             // We filter only packets from the actual tunnel
@@ -56,11 +56,13 @@ int main(int argc, char *argv[]) {
         memcpy(send_pckt_outer, recv_pckt_tunnel->icmp_ip_pckt.data,tot_len - sizeof(recv_pckt_tunnel->ip_hdr) - sizeof(recv_pckt_tunnel->icmp_ip_pckt.icmp_hdr));
         // Send packet to outer
         printf("Sending To Outer\n");
-        sendBuff(outer_sock, send_pckt_outer, tot_len - sizeof(recv_pckt_tunnel->ip_hdr) - sizeof(recv_pckt_tunnel->icmp_ip_pckt.icmp_hdr), *(struct sockaddr *) &outer_addr);
+        send_buffer(outer_sock, send_pckt_outer,
+                    tot_len - sizeof(recv_pckt_tunnel->ip_hdr) - sizeof(recv_pckt_tunnel->icmp_ip_pckt.icmp_hdr),
+                    *(struct sockaddr *) &outer_addr);
         // Get packet from outer
         printf("Receiving From Outer\n");
         do {
-            tot_len = recvToBuff(outer_sock, recv_pckt_outer, MAX_PCKT_LEN);
+            tot_len = recv_to_buffer(outer_sock, recv_pckt_outer, MAX_PCKT_LEN);
             printf(".");
             // We wait for reply from the same host we sent the packet to
         } while (recv_pckt_outer->ip_hdr.saddr != outer_addr.sin_addr.s_addr);
@@ -72,7 +74,8 @@ int main(int argc, char *argv[]) {
 
         // Send packet to tunnel
         printf("Sending To Tunnel\n");
-        sendBuff(tunnel_sock, send_pckt_tunnel, tot_len + sizeof(send_pckt_tunnel->icmp_hdr), *(struct sockaddr *) &tunnel_addr);
+        send_buffer(tunnel_sock, send_pckt_tunnel, tot_len + sizeof(send_pckt_tunnel->icmp_hdr),
+                    *(struct sockaddr *) &tunnel_addr);
     }
     close(tunnel_sock);
     close(outer_sock);
