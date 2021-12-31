@@ -6,7 +6,7 @@
 #include <linux/tcp.h>
 
 #define MAX_PCKT_LEN 1500
-#define MAX_TUNNEL_DATA_LEN (1500 - sizeof(IngoingTunnelPckt))
+#define MAX_TUNNEL_DATA_LEN (MAX_PCKT_LEN - sizeof(IngoingTunnelPckt))
 #define MAX_CONNECTIONS 32
 #define TUNNEL_MAGIC 1337
 #define TUNNEL_NEW_CONNECTION 1
