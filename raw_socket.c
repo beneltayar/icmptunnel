@@ -14,11 +14,11 @@ int main(int argc, char *argv[]) {
         printf("Usage is:\nraw_socket <src_ip> <dst_ip> <protocol_num> <data>");
         exit(EXIT_FAILURE);
     }
-    char *src_ip = argv[1], *dst_ip=argv[2], *data_to_send = argv[4];
+    char *src_ip = argv[1], *dst_ip = argv[2], *data_to_send = argv[4];
     int proto = strtol(argv[3], NULL, 10);
 
     char send_buf[PCKT_LEN];
-    struct ip_packet *send_pckt = (struct ip_packet *)send_buf;
+    struct ip_packet *send_pckt = (struct ip_packet *) send_buf;
 
     memset(send_buf, 0, sizeof(send_buf));
 
