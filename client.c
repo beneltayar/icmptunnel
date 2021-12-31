@@ -135,7 +135,7 @@ void handle_tunnel_data_packet(TunnelSession *current_session) {
 
 int main(int argc, char *argv[]) {
     if (argc != 5) {
-        printf("Usage is:\nclient <proxy_address> <local_port> <destination_address> <destination_port>");
+        printf("Usage is:\nclient <proxy_address> <local_port> <destination_address> <destination_port>\n");
         exit(EXIT_FAILURE);
     }
     // Parse input arguments
